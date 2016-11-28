@@ -26,7 +26,7 @@ public class Client {
             System.out.println("Type in something and press enter. Will send it to the server and tell ya what it thinks.");
             System.out.println();
 
-            while (!"Exit".equals(line)) {
+            while (!"exit".equals(line)) {
                 line = keyboard.readLine(); // ждем пока пользователь введет что-то и нажмет кнопку Enter.
                 System.out.println("Sending this line to the server...");
                 out.write(line); // отсылаем введенную строку текста серверу.
