@@ -1,6 +1,10 @@
 package com.andersenlab.firstServer;
 
 import java.net.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+
 import java.io.*;
 
 public class Server {
@@ -14,13 +18,12 @@ public class Server {
         public ConnectionHandler(Socket socket) {
 
             this.socket = socket;
-            
 
             try {
-                
-                in = new BufferedReader(new InputStreamReader(this.socket.getInputStream()));
-                out = new PrintWriter(this.socket.getOutputStream(), true);
-                
+
+                in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+                out = new PrintWriter(socket.getOutputStream(), true);
+
             } catch (IOException e) {
                 // TODO Auto-generated catch block
                 e.printStackTrace();
@@ -36,10 +39,11 @@ public class Server {
 
                 while (true) {
 
-                    line = in.readLine(); 
-                    
-                    if(line.equals("exit")) break;
-                                        
+                    line = in.readLine();
+
+                    if (line.equals("exit"))
+                        break;
+
                     System.out.println("The dumb client just sent me this line : " + line);
                     System.out.println("I'm sending it back...");
                     out.write(line); // отсылаем клиенту обратно ту самую
@@ -60,29 +64,34 @@ public class Server {
     public static void main(String[] args) {
         int port = 4777; // случайный порт (может быть любое число от 1025 до
                          // 65535)
-        ServerSocket ss = null;
+
+        List<ConnectionHandler> connections = Collections.synchronizedList(new ArrayList<ConnectionHandler>());
+
+        ServerSocket server = null;
         try {
 
             try {
-                ss = new ServerSocket(port); // создаем сокет сервера и
+                server = new ServerSocket(port); // создаем сокет сервера и
             } catch (IOException e) {
-                System.out.println("Error");
+                System.out.println("Error open SS" + e);
                 return;
-            } // привязываем его к
-              // вышеуказанному порту
+            } 
             System.out.println("Waiting for a client...");
 
+            Socket socket = null;
+           
             while (true) {
 
-                Socket socket = null;
                 try {
-                    socket = ss.accept(); // заставляем сервер ждать
-                                          // подключений и выводим сообщение
-                                          // когда кто-то связался с сервером
+                    socket = server.accept();
+
                     System.out.println("Got a client :) ... Finally, someone saw me through all the cover!");
                     System.out.println();
 
                     ConnectionHandler handler = new ConnectionHandler(socket);
+
+                    connections.add(handler);
+
                     handler.start();
 
                 } catch (IOException e) {
@@ -91,6 +100,8 @@ public class Server {
                     if (socket != null) {
                         try {
                             socket.close();
+                            
+                            
                         } catch (IOException e) {
 
                             // TODO Auto-generated catch block
@@ -101,9 +112,9 @@ public class Server {
                 }
             }
         } finally {
-            if (ss != null) {
+            if (server != null) {
                 try {
-                    ss.close();
+                    server.close();
                 } catch (IOException e) {
                     // TODO Auto-generated catch block
                     e.printStackTrace();
