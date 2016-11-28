@@ -11,6 +11,7 @@ public class Server {
 
     public static class ConnectionHandler extends Thread {
 
+        
         private Socket socket;
         private BufferedReader in;
         private PrintWriter out;
@@ -100,15 +101,12 @@ public class Server {
                     if (socket != null) {
                         try {
                             socket.close();
-                            
-                            
                         } catch (IOException e) {
 
                             // TODO Auto-generated catch block
                             System.out.println("Close Error " + e);
                         }
                     }
-
                 }
             }
         } finally {
