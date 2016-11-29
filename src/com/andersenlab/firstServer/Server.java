@@ -5,9 +5,12 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
+
 import java.io.*;
 
 public class Server {
+    
+    List<ConnectionHandler> connections = Collections.synchronizedList(new ArrayList<ConnectionHandler>());
 
     public static class ConnectionHandler extends Thread {
 
@@ -15,7 +18,8 @@ public class Server {
         private Socket socket;
         private BufferedReader in;
         private PrintWriter out;
-
+        private String line = null;
+        
         public ConnectionHandler(Socket socket) {
 
             this.socket = socket;
@@ -36,7 +40,7 @@ public class Server {
 
             try {
 
-                String line = null;
+                
 
                 while (true) {
 
@@ -58,17 +62,32 @@ public class Server {
 
             } catch (IOException e) {
                 System.out.println("IO Error " + e);
+                e.printStackTrace();
             }
         }
+        
+        public void close() {
+            try {
+                in.close();
+                out.close();
+                socket.close();
+                   
+                
+            } catch (Exception e) {
+                System.err.println("Close Error");
+            }
+        }
+        
     }
 
     public static void main(String[] args) {
-        int port = 4777; // случайный порт (может быть любое число от 1025 до
+        int port = 12121; // случайный порт (может быть любое число от 1025 до
                          // 65535)
 
         List<ConnectionHandler> connections = Collections.synchronizedList(new ArrayList<ConnectionHandler>());
 
         ServerSocket server = null;
+       
         try {
 
             try {
