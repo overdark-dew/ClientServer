@@ -1,141 +1,222 @@
 package com.andersenlab.firstServer;
 
-
-import java.net.*;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-
-
+import java.net.ServerSocket;
+import java.net.Socket;
 import java.io.*;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
 
+import org.apache.log4j.Logger;
+
+/**
+ * Класс сервера. Сидит тихо на порту, принимает сообщение, создает
+ * SocketProcessor на каждое сообщение
+ */
 public class Server {
-    
-    List<ConnectionHandler> connections = Collections.synchronizedList(new ArrayList<ConnectionHandler>());
+    private ServerSocket ss; // сам сервер-сокет
+    private Thread serverThread; // главная нить обработки сервер-сокета
+    private int port; // порт сервер сокета.
+    // очередь, где храняться все SocketProcessorы для рассылки
+    BlockingQueue<SocketProcessor> queue = new LinkedBlockingQueue<SocketProcessor>();
 
-    public static class ConnectionHandler extends Thread {
-
-        
-        private Socket socket;
-        private BufferedReader in;
-        private PrintWriter out;
-        private String line = null;
-        
-        public ConnectionHandler(Socket socket) {
-
-            this.socket = socket;
-
-            try {
-
-                in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-                out = new PrintWriter(socket.getOutputStream(), true);
-
-            } catch (IOException e) {
-                // TODO Auto-generated catch block
-                e.printStackTrace();
-            }
-        }
-
-        @Override
-        public void run() {
-
-            try {
-
-                
-
-                while (true) {
-
-                    line = in.readLine();
-
-                    if (line.equals("exit"))
-                        break;
-
-                    System.out.println("The dumb client just sent me this line : " + line);
-                    System.out.println("I'm sending it back...");
-                    out.write(line); // отсылаем клиенту обратно ту самую
-                                     // строку
-                                     // текста.
-                    out.flush(); // заставляем поток закончить передачу
-                                 // данных.
-                    System.out.println("Waiting for the next line...");
-                    System.out.println();
-                }
-
-            } catch (IOException e) {
-                System.out.println("IO Error " + e);
-                e.printStackTrace();
-            }
-        }
-        
-        public void close() {
-            try {
-                in.close();
-                out.close();
-                socket.close();
-                   
-                
-            } catch (Exception e) {
-                System.err.println("Close Error");
-            }
-        }
-        
+    /**
+     * Конструктор объекта сервера
+     * 
+     * @param port
+     *            Порт, где будем слушать входящие сообщения.
+     * @throws IOException
+     *             Если не удасться создать сервер-сокет, вылетит по эксепшену,
+     *             объект Сервера не будет создан
+     */
+    public Server(int port) throws IOException {
+        ss = new ServerSocket(port); // создаем сервер-сокет
+        this.port = port; // сохраняем порт.
+        Client.log.info("Server started");
     }
 
-    public static void main(String[] args) {
-        int port = 12121; // случайный порт (может быть любое число от 1025 до
-                         // 65535)
-
-        List<ConnectionHandler> connections = Collections.synchronizedList(new ArrayList<ConnectionHandler>());
-
-        ServerSocket server = null;
-       
-        try {
-
-            try {
-                server = new ServerSocket(port); // создаем сокет сервера и
-            } catch (IOException e) {
-                System.out.println("Error open SS" + e);
-                return;
-            } 
-            System.out.println("Waiting for a client...");
-
-            Socket socket = null;
-           
-            while (true) {
-
+    /**
+     * главный цикл прослушивания/ожидания коннекта.
+     */
+    void run() {
+        serverThread = Thread.currentThread(); // со старта сохраняем нить
+                                               // (чтобы можно ее было
+                                               // interrupt())
+        while (true) { // бесконечный цикл, типа...
+            Socket s = getNewConn(); // получить новое соединение или
+                                     // фейк-соедиение
+            if (serverThread.isInterrupted()) { // если это фейк-соединение, то
+                                                // наша нить была interrupted(),
+                // надо прерваться
+                break;
+            } else if (s != null) { // "только если коннект успешно создан"...
                 try {
-                    socket = server.accept();
+                    final SocketProcessor processor = new SocketProcessor(s); // создаем
+                                                                              // сокет-процессор
+                    final Thread thread = new Thread(processor); // создаем
+                                                                 // отдельную
+                                                                 // асинхронную
+                                                                 // нить чтения
+                                                                 // из сокета
+                    thread.setDaemon(true); // ставим ее в демона (чтобы не
+                                            // ожидать ее закрытия)
+                    thread.start(); // запускаем
+                    queue.offer(processor); // добавляем в список активных
+                    // сокет-процессоров
+                } // тут прикол в замысле. Если попытка создать (new
+                  // SocketProcessor()) безуспешна,
+                  // то остальные строки обойдем, нить запускать не будем, в
+                  // список не сохраним
+                catch (IOException ioe) {
+                    Client.log.info(ioe);
 
-                    System.out.println("Got a client :) ... Finally, someone saw me through all the cover!");
-                    System.out.println();
+                }
+            }
+        }
+    }
 
-                    ConnectionHandler handler = new ConnectionHandler(socket);
+    /**
+     * Ожидает новое подключение.
+     * 
+     * @return Сокет нового подключения
+     */
+    private Socket getNewConn() {
+        Socket s = null;
+        try {
+            s = ss.accept();
+        } catch (IOException ioe) {
+            Client.log.info(ioe);
+            shutdownServer(); // если ошибка в момент приема - "гасим" сервер
+        }
+        return s;
+    }
 
-                    connections.add(handler);
+    /**
+     * метод "глушения" сервера
+     */
+    private synchronized void shutdownServer() {
+        // обрабатываем список рабочих коннектов, закрываем каждый
+        for (SocketProcessor s : queue) {
+            s.close();
+        }
+        if (!ss.isClosed()) {
+            try {
+                ss.close();
+            } catch (IOException ioe) {
+                Client.log.info(ioe);
+            }
+        }
+    }
 
-                    handler.start();
+    public static final Logger log = Logger.getLogger(Server.class);
 
-                } catch (IOException e) {
-                    System.out.println("IO Error " + e + e.getMessage() + e.getCause());
-                } finally {
-                    if (socket != null) {
-                        try {
-                            socket.close();
-                        } catch (IOException e) {
+    /**
+     * входная точка программы
+     * 
+     * @param args
+     * @throws IOException
+     */
+    public static void main(String[] args) throws IOException {
 
-                            // TODO Auto-generated catch block
-                            System.out.println("Close Error " + e);
-                        }
+        new Server(9211).run(); // если сервер не создался, программа
+        // вылетит по эксепшену, и метод run() не запуститься
+    }
+
+    /**
+     * вложенный класс асинхронной обработки одного коннекта.
+     */
+    private class SocketProcessor implements Runnable {
+        Socket socket; // наш сокет
+        BufferedReader in; // буферизировнный читатель сокета
+        BufferedWriter out; // буферизированный писатель в сокет
+
+        /**
+         * Сохраняем сокет, пробуем создать читателя и писателя. Если не
+         * получается - вылетаем без создания объекта
+         * 
+         * @param socketParam
+         *            сокет
+         * @throws IOException
+         *             Если ошибка в создании br || bw
+         */
+        SocketProcessor(Socket socketParam) throws IOException {
+            socket = socketParam;
+            in = new BufferedReader(new InputStreamReader(socket.getInputStream(), "UTF-8"));
+            out = new BufferedWriter(new OutputStreamWriter(socket.getOutputStream(), "UTF-8"));
+        }
+
+        /**
+         * Главный цикл чтения сообщений/рассылки
+         */
+        @SuppressWarnings("resource")
+        public void run() {
+            Client.log.info("New client connected");
+            while (!socket.isClosed()) { // пока сокет не закрыт...
+                String line = null;
+                try {
+                    line = in.readLine(); // пробуем прочесть.
+                } catch (IOException ioe) {
+                    Client.log.info(ioe);
+                    close(); // если не получилось - закрываем сокет.
+                }
+                Client.log.info("Message from " + line);
+                if (line.equals("exit")) { // Если вводим "exit" - клиент
+                                           // отключился.
+                    close(); // закрываем сокет
+                } else if ("shutdown".equals(line)) { // если поступила команда
+                                                      // "погасить сервер",
+                                                      // то...
+                    serverThread.interrupt(); // сначала возводим флаг у
+                                              // северной нити о необходимости
+                                              // прерваться.
+                    try {
+                        new Socket("localhost", port); // создаем фейк-коннект
+                                                       // (чтобы выйти из
+                                                       // .accept())
+                    } catch (IOException ioe) {
+                        Client.log.info(ioe);
+
+                    } finally {
+                        shutdownServer(); // а затем глушим сервер вызовом его
+                                          // метода shutdownServer().
+                    }
+                } else { // иначе - банальная рассылка по списку
+                         // сокет-процессоров
+                    for (SocketProcessor sp : queue) {
+                        sp.send(line);
                     }
                 }
             }
-        } finally {
-            if (server != null) {
+        }
+
+        /**
+         * Метод посылает в сокет полученную строку
+         * 
+         * @param line
+         *            строка на отсылку
+         */
+        public synchronized void send(String line) {
+            try {
+                out.write(line); // пишем строку
+                out.write("\n"); // пишем перевод строки
+                out.flush(); // отправляем
+            } catch (IOException ioe) {
+                Client.log.info(ioe);
+                close(); // если глюк в момент отправки - закрываем данный
+                         // сокет.
+            }
+        }
+
+        /**
+         * метод аккуратно закрывает сокет и убирает его со списка активных
+         * сокетов
+         */
+        public synchronized void close() {
+            queue.remove(this); // убираем из списка
+            if (!socket.isClosed()) {
                 try {
-                    server.close();
-                } catch (IOException e) {
-                    // TODO Auto-generated catch block
-                    e.printStackTrace();
+                    socket.close(); // закрываем
+                } catch (IOException ioe) {
+                    Client.log.info(ioe);
                 }
             }
         }
