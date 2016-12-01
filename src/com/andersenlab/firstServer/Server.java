@@ -9,11 +9,11 @@ import java.util.concurrent.LinkedBlockingQueue;
 import org.apache.log4j.Logger;
 
 /**
- * Класс сервера. Сидит тихо на порту, принимает сообщение, создает
+ * Класс сервера. принимает сообщение, создает
  * SocketProcessor на каждое сообщение
  */
 public class Server {
-    private ServerSocket ss; // сам сервер-сокет
+    private ServerSocket serverSocket; // сам сервер-сокет
     private Thread serverThread; // главная нить обработки сервер-сокета
     private int port; // порт сервер сокета.
     // очередь, где храняться все SocketProcessorы для рассылки
@@ -29,7 +29,7 @@ public class Server {
      *             объект Сервера не будет создан
      */
     public Server(int port) throws IOException {
-        ss = new ServerSocket(port); // создаем сервер-сокет
+        serverSocket = new ServerSocket(port); // создаем сервер-сокет
         this.port = port; // сохраняем порт.
         Client.log.info("Server started");
     }
@@ -82,7 +82,7 @@ public class Server {
     private Socket getNewConn() {
         Socket s = null;
         try {
-            s = ss.accept();
+            s = serverSocket.accept();
         } catch (IOException ioe) {
             Client.log.info(ioe);
             shutdownServer(); // если ошибка в момент приема - "гасим" сервер
@@ -98,9 +98,9 @@ public class Server {
         for (SocketProcessor s : queue) {
             s.close();
         }
-        if (!ss.isClosed()) {
+        if (!serverSocket.isClosed()) {
             try {
-                ss.close();
+                serverSocket.close();
             } catch (IOException ioe) {
                 Client.log.info(ioe);
             }
