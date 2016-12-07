@@ -159,7 +159,8 @@ public class Server {
                     close(); // если не получилось - закрываем сокет.
                 }
                 Client.log.info("Message from " + line);
-                if (line.equals("exit")) { // Если вводим "exit" - клиент
+                
+                if (line == null ||line.equals("exit")) { // Если вводим "exit" - клиент
                                            // отключился.
                     close(); // закрываем сокет
                 } else if ("shutdown".equals(line)) { // если поступила команда
